@@ -20,6 +20,7 @@ def main(cfg):
         add_linear=cfg.MODEL.TGRU.ADD_LINEAR,
         bidirectional=cfg.MODEL.TGRU.BIDIRECTIONAL,
         use_residual=cfg.MODEL.TGRU.RESIDUAL,
+        interp_type=cfg.EVAL.INTERP_TYPE, interp_ratio=cfg.EVAL.INTERP_RATIO,
     ).to(cfg.DEVICE)
 
     if cfg.TRAIN.PRETRAINED != '' and os.path.isfile(cfg.TRAIN.PRETRAINED):

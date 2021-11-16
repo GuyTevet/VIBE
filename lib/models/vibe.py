@@ -74,12 +74,16 @@ class VIBE(nn.Module):
             bidirectional=False,
             use_residual=True,
             pretrained=osp.join(VIBE_DATA_DIR, 'spin_model_checkpoint.pth.tar'),
+            interp_type='linear', interp_ratio=None,
     ):
 
         super(VIBE, self).__init__()
 
         self.seqlen = seqlen
         self.batch_size = batch_size
+
+        self.interp_type = interp_type
+        self.interp_ratio = interp_ratio
 
         self.encoder = TemporalEncoder(
             n_layers=n_layers,
@@ -90,7 +94,7 @@ class VIBE(nn.Module):
         )
 
         # regressor can predict cam, pose and shape params in an iterative way
-        self.regressor = Regressor()
+        self.regressor = Regressor(interp_type=self.interp_type, interp_ratio=interp_ratio)
 
         if pretrained and os.path.isfile(pretrained):
             pretrained_dict = torch.load(pretrained)['model']
@@ -106,7 +110,7 @@ class VIBE(nn.Module):
         feature = self.encoder(input)
         feature = feature.reshape(-1, feature.size(-1))
 
-        smpl_output = self.regressor(feature, J_regressor=J_regressor)
+        smpl_output = self.regressor(feature, J_regressor=J_regressor, orig_bs=batch_size)
         for s in smpl_output:
             s['theta'] = s['theta'].reshape(batch_size, seqlen, -1)
             s['verts'] = s['verts'].reshape(batch_size, seqlen, -1, 3)
@@ -128,12 +132,16 @@ class VIBE_Demo(nn.Module):
             bidirectional=False,
             use_residual=True,
             pretrained=osp.join(VIBE_DATA_DIR, 'spin_model_checkpoint.pth.tar'),
+            interp_type='linear', interp_ratio=None,
     ):
 
         super(VIBE_Demo, self).__init__()
 
         self.seqlen = seqlen
         self.batch_size = batch_size
+
+        self.interp_type = interp_type
+        self.interp_ratio = interp_ratio
 
         self.encoder = TemporalEncoder(
             n_layers=n_layers,
@@ -148,7 +156,7 @@ class VIBE_Demo(nn.Module):
         self.hmr.load_state_dict(checkpoint['model'], strict=False)
 
         # regressor can predict cam, pose and shape params in an iterative way
-        self.regressor = Regressor()
+        self.regressor = Regressor(interp_type=self.interp_type, interp_ratio=interp_ratio)
 
         if pretrained and os.path.isfile(pretrained):
             pretrained_dict = torch.load(pretrained)['model']
@@ -167,7 +175,7 @@ class VIBE_Demo(nn.Module):
         feature = self.encoder(feature)
         feature = feature.reshape(-1, feature.size(-1))
 
-        smpl_output = self.regressor(feature, J_regressor=J_regressor)
+        smpl_output = self.regressor(feature, J_regressor=J_regressor, orig_bs=batch_size)
 
         for s in smpl_output:
             s['theta'] = s['theta'].reshape(batch_size, seqlen, -1)

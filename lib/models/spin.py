@@ -207,10 +207,17 @@ class HMR(nn.Module):
 
 
 class Regressor(nn.Module):
-    def __init__(self, smpl_mean_params=SMPL_MEAN_PARAMS):
+    def __init__(self, smpl_mean_params=SMPL_MEAN_PARAMS, interp_type='linear', interp_ratio=None):
         super(Regressor, self).__init__()
 
         npose = 24 * 6
+
+        self.interp_type = interp_type
+        self.interp_ratio = interp_ratio
+        if interp_ratio is not None:
+            print('Regressor will execute interp [{}, {}]'.format(self.interp_type, self.interp_ratio))
+        else:
+            print('Regressor - No interp!')
 
         self.fc1 = nn.Linear(512 * 4 + npose + 13, 1024)
         self.drop1 = nn.Dropout()
@@ -237,9 +244,43 @@ class Regressor(nn.Module):
         self.register_buffer('init_shape', init_shape)
         self.register_buffer('init_cam', init_cam)
 
+    # TODO - insert interpolator fn here
+    def interp_batch(self, data, interp_type, interp_ratio):
+        import numpy as np
+        from scipy.interpolate import interp1d
+        temporal_axis = 1
+        # print(batch.keys())
+        # for k in batch.keys():
+        #     print('{}: {}'.format(k, data.shape))
+        # print(interp_ratio)
+        # print(interp_ratio is not None)
+        assert type(interp_ratio) == int
 
+        # sample
+        timeline = np.arange(data.shape[temporal_axis])
+        sample_timeline = timeline[0::interp_ratio]
+        if sample_timeline[-1] != timeline[-1]:
+            sample_timeline = np.append(sample_timeline, timeline[-1])
+        sample = data[:, sample_timeline, ...].cpu().numpy() # temporal_axis=1
 
-    def forward(self, x, init_pose=None, init_shape=None, init_cam=None, n_iter=3, J_regressor=None):
+        # print(timeline)
+        # print(sample_timeline)
+        # print(sample.shape)
+        # print(len(sample.shape)-1)
+
+        # interpoloate
+        interp_fn = interp1d(sample_timeline, sample, axis=temporal_axis, kind=interp_type)
+        interped = interp_fn(timeline)
+
+        # scale_factor = tuple([1.] * (len(data.shape) - 1 - 2) + [float(interp_ratio)])
+        # interped = torch.nn.functional.interpolate(sample, scale_factor=scale_factor, mode=interp_type,
+        #                                            align_corners=None, recompute_scale_factor=None)
+        # print(interped.shape)
+
+        assert interped.shape == data.shape
+        return torch.tensor(interped, device=data.device, dtype=torch.float32)
+
+    def forward(self, x, init_pose=None, init_shape=None, init_cam=None, n_iter=3, J_regressor=None, orig_bs=None):
         batch_size = x.shape[0]
 
         if init_pose is None:
@@ -263,6 +304,41 @@ class Regressor(nn.Module):
             pred_cam = self.deccam(xc) + pred_cam
 
         pred_rotmat = rot6d_to_rotmat(pred_pose).view(batch_size, 24, 3, 3)
+
+        # Interpolation module
+        if self.interp_ratio is not None:
+            assert type(self.interp_ratio) == int
+            import pytorch3d.transforms as T
+
+            # _pose = T.matrix_to_euler_angles(pred_rotmat, 'XYZ')
+            _pose = T.matrix_to_rotation_6d(pred_rotmat)
+            assert orig_bs is not None
+            # orig_bs = 32  # FIXME - avoid hardcoding - for eval
+            # orig_bs = 1  # FIXME - avoid hardcoding - for demo
+            bs, n_joints, n_dims = _pose.shape
+            seqlen = bs//orig_bs
+            print('DEBUG: Considering seqlen [{}]'.format(seqlen)) # just for validation
+
+            # to be interped
+            _pose = _pose.reshape(orig_bs, seqlen, n_joints, n_dims)
+            _shape = pred_shape.reshape(orig_bs, seqlen, 10)
+            _cam = pred_cam.reshape(orig_bs, seqlen, 3)
+
+            # interp
+            # interp_type = 'cubic'  # FIXME - hardcoded interp_type, interp_ratio
+            # interp_ratio = 32
+            _pose = self.interp_batch(_pose, self.interp_type, self.interp_ratio)
+            _shape = self.interp_batch(_shape, self.interp_type, self.interp_ratio)
+            _cam = self.interp_batch(_cam, self.interp_type, self.interp_ratio)
+
+            # override original data
+            _pose = _pose.reshape(batch_size, n_joints, n_dims)
+            # _pose = T.euler_angles_to_matrix(_pose, 'XYZ')
+            _pose = T.rotation_6d_to_matrix(_pose)
+            assert _pose.shape == pred_rotmat.shape
+            pred_rotmat = _pose
+            pred_shape = _shape.reshape(batch_size, 10)
+            pred_cam = _cam.reshape(batch_size, 3)
 
         pred_output = self.smpl(
             betas=pred_shape,

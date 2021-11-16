@@ -103,6 +103,9 @@ cfg.MODEL.TGRU.RESIDUAL = False
 cfg.MODEL.TGRU.HIDDEN_SIZE = 2048
 cfg.MODEL.TGRU.BIDIRECTIONAL = False
 
+cfg.EVAL = CN()
+cfg.EVAL.INTERP_TYPE = 'linear'
+cfg.EVAL.INTERP_RATIO = None
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""
