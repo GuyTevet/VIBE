@@ -317,7 +317,7 @@ class Regressor(nn.Module):
             # orig_bs = 1  # FIXME - avoid hardcoding - for demo
             bs, n_joints, n_dims = _pose.shape
             seqlen = bs//orig_bs
-            print('DEBUG: Considering seqlen [{}]'.format(seqlen)) # just for validation
+            # print('DEBUG: Considering seqlen [{}]'.format(seqlen)) # just for validation
 
             # to be interped
             _pose = _pose.reshape(orig_bs, seqlen, n_joints, n_dims)

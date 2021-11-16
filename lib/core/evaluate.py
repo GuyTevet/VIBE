@@ -14,6 +14,8 @@
 #
 # Contact: ps-license@tuebingen.mpg.de
 
+import json
+import os
 import time
 import torch
 import shutil
@@ -40,10 +42,18 @@ class Evaluator():
             test_loader,
             model,
             device=None,
+            out_json=None,
+            interp_type='linear',
+            interp_ratio=None,
     ):
         self.test_loader = test_loader
         self.model = model
         self.device = device
+
+        self.out_json = out_json
+        self.interp_type = interp_type
+        self.interp_ratio = interp_ratio
+        self.interp_experiment = self.interp_ratio is not None
 
         self.evaluation_accumulators = dict.fromkeys(['pred_j3d', 'target_j3d', 'target_theta', 'pred_verts'])
 
@@ -146,8 +156,32 @@ class Evaluator():
             'accel_err': accel_err
         }
 
+        self.write_results(eval_dict)
+
         log_str = ' '.join([f'{k.upper()}: {v:.4f},'for k,v in eval_dict.items()])
         print(log_str)
+
+    def write_results(self, eval_dict):
+        # for interp experiment
+        json_dict = {}
+        if os.path.isfile(self.out_json):
+            with open(self.out_json, 'r') as fr:
+                json_dict = json.load(fr)
+
+        # append results
+        if self.interp_ratio is None:
+            json_dict['no_interp'] = eval_dict
+        else:
+            if not self.interp_type in json_dict.keys():
+                json_dict[self.interp_type] = [(1, json_dict['no_interp'])] # assumes no_interp runs first
+            json_dict[self.interp_type].append((self.interp_ratio, eval_dict))
+            json_dict[self.interp_type].sort(key=lambda e: e[0])
+
+        # save json
+        with open(self.out_json, 'w') as fw:
+            json.dump(json_dict, fw)
+
+
 
     def run(self):
         self.validate()

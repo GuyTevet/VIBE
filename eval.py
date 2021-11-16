@@ -46,6 +46,9 @@ def main(cfg):
         model=model,
         device=cfg.DEVICE,
         test_loader=test_loader,
+        out_json=os.path.join(cfg.OUTPUT_DIR, 'eval.json'),
+        interp_type=cfg.EVAL.INTERP_TYPE,
+        interp_ratio=cfg.EVAL.INTERP_RATIO,
     ).run()
 
 
