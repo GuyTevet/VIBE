@@ -57,6 +57,7 @@ class Trainer():
             resume=None,
             performance_type='min',
             num_iters_per_epoch=1000,
+            output_dilator=None,
     ):
 
         # Prepare dataloaders
@@ -90,6 +91,7 @@ class Trainer():
         self.debug = debug
         self.debug_freq = debug_freq
         self.logdir = logdir
+        self.output_dilator = output_dilator
 
         self.dis_motion_update_steps = dis_motion_update_steps
 
@@ -183,6 +185,21 @@ class Trainer():
             timer['forward'] = time.time() - start
             start = time.time()
 
+            def print_dict(d):
+                for k, v in d.items(): print('{}: {}'.format(k, v.shape))
+
+            print('B target_2d:'); print_dict(target_2d)
+            print('B target_3d:'); print_dict(target_3d)
+            print('B preds({}):'.format(len(preds))); print_dict(preds[0])
+
+            if self.output_dilator is not None:
+                target_2d = self.output_dilator(target_2d)
+                target_3d = self.output_dilator(target_3d)
+                preds = [self.output_dilator(p) for p in preds]
+
+            print('A target_2d:'); print_dict(target_2d)
+            print('A target_3d:'); print_dict(target_3d)
+            print('A preds({}):'.format(len(preds))); print_dict(preds[0])
             gen_loss, motion_dis_loss, loss_dict = self.criterion(
                 generator_outputs=preds,
                 data_2d=target_2d,

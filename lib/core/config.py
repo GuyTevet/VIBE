@@ -103,6 +103,8 @@ cfg.MODEL.TGRU.RESIDUAL = False
 cfg.MODEL.TGRU.HIDDEN_SIZE = 2048
 cfg.MODEL.TGRU.BIDIRECTIONAL = False
 
+cfg.MODEL.OUTPUT_DILATION_RATE = 1  # 1 means no dilation
+
 cfg.EVAL = CN()
 cfg.EVAL.INTERP_TYPE = 'linear'
 cfg.EVAL.INTERP_RATIO = None

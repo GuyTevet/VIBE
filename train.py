@@ -27,6 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from lib.core.loss import VIBELoss
 from lib.core.trainer import Trainer
 from lib.core.config import parse_args
+from lib.models.utils import Dilator
 from lib.utils.utils import prepare_output_dir
 from lib.models import VIBE, MotionDiscriminator
 from lib.dataset.loaders import get_data_loaders
@@ -132,6 +133,10 @@ def main(cfg):
         verbose=True,
     )
 
+    output_dilator=None
+    if cfg.MODEL.OUTPUT_DILATION_RATE > 1:
+        output_dilator = Dilator(dilation_rate=cfg.MODEL.OUTPUT_DILATION_RATE)
+
     # ========= Start Training ========= #
     Trainer(
         data_loaders=data_loaders,
@@ -152,6 +157,7 @@ def main(cfg):
         resume=cfg.TRAIN.RESUME,
         num_iters_per_epoch=cfg.TRAIN.NUM_ITERS_PER_EPOCH,
         debug_freq=cfg.DEBUG_FREQ,
+        output_dilator=output_dilator,
     ).fit()
 
 
