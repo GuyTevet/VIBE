@@ -188,18 +188,18 @@ class Trainer():
             def print_dict(d):
                 for k, v in d.items(): print('{}: {}'.format(k, v.shape))
 
-            print('B target_2d:'); print_dict(target_2d)
-            print('B target_3d:'); print_dict(target_3d)
-            print('B preds({}):'.format(len(preds))); print_dict(preds[0])
+            # print('B target_2d:'); print_dict(target_2d)
+            # print('B target_3d:'); print_dict(target_3d)
+            # print('B preds({}):'.format(len(preds))); print_dict(preds[0])
 
             if self.output_dilator is not None:
                 target_2d = self.output_dilator(target_2d)
                 target_3d = self.output_dilator(target_3d)
                 preds = [self.output_dilator(p) for p in preds]
 
-            print('A target_2d:'); print_dict(target_2d)
-            print('A target_3d:'); print_dict(target_3d)
-            print('A preds({}):'.format(len(preds))); print_dict(preds[0])
+            # print('A target_2d:'); print_dict(target_2d)
+            # print('A target_3d:'); print_dict(target_3d)
+            # print('A preds({}):'.format(len(preds))); print_dict(preds[0])
             gen_loss, motion_dis_loss, loss_dict = self.criterion(
                 generator_outputs=preds,
                 data_2d=target_2d,
