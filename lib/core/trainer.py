@@ -291,6 +291,10 @@ class Trainer():
 
                 preds = self.generator(inp, J_regressor=J_regressor)
 
+                if self.output_dilator is not None:
+                    preds = [self.output_dilator(p) for p in preds]
+                    target = self.output_dilator(target)
+
                 # convert to 14 keypoint format for evaluation
                 n_kp = preds[-1]['kp_3d'].shape[-2]
                 pred_j3d = preds[-1]['kp_3d'].view(-1, n_kp, 3).cpu().numpy()
