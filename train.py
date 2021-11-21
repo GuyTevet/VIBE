@@ -133,8 +133,14 @@ def main(cfg):
         verbose=True,
     )
 
+    input_dilator=None
+    if cfg.MODEL.INPUT_DILATION_RATE > 1:
+        assert cfg.MODEL.OUTPUT_DILATION_RATE == 1
+        input_dilator = Dilator(dilation_rate=cfg.MODEL.INPUT_DILATION_RATE)
+
     output_dilator=None
     if cfg.MODEL.OUTPUT_DILATION_RATE > 1:
+        assert cfg.MODEL.INPUT_DILATION_RATE == 1
         output_dilator = Dilator(dilation_rate=cfg.MODEL.OUTPUT_DILATION_RATE)
 
     # ========= Start Training ========= #
@@ -157,6 +163,7 @@ def main(cfg):
         resume=cfg.TRAIN.RESUME,
         num_iters_per_epoch=cfg.TRAIN.NUM_ITERS_PER_EPOCH,
         debug_freq=cfg.DEBUG_FREQ,
+        input_dilator=input_dilator,
         output_dilator=output_dilator,
     ).fit()
 

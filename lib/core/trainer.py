@@ -34,6 +34,13 @@ from lib.utils.eval_utils import (
 
 logger = logging.getLogger(__name__)
 
+def print_dict(d):
+    for k, v in d.items():
+        if type(v) == list:
+            print('{}: {}'.format(k, len(v)))
+            print('{}[0]: {}'.format(k, v[0]))
+        else:
+            print('{}: {}'.format(k, v.shape))
 
 class Trainer():
     def __init__(
@@ -57,6 +64,7 @@ class Trainer():
             resume=None,
             performance_type='min',
             num_iters_per_epoch=1000,
+            input_dilator=None,
             output_dilator=None,
     ):
 
@@ -91,6 +99,7 @@ class Trainer():
         self.debug = debug
         self.debug_freq = debug_freq
         self.logdir = logdir
+        self.input_dilator = input_dilator
         self.output_dilator = output_dilator
 
         self.dis_motion_update_steps = dis_motion_update_steps
@@ -118,7 +127,6 @@ class Trainer():
 
     def train(self):
         # Single epoch training routine
-
         losses = AverageMeter()
 
         timer = {
@@ -169,6 +177,13 @@ class Trainer():
 
             move_dict_to_device(real_motion_samples, self.device)
 
+            # print('B target_2d:'); print_dict(target_2d)
+            # print('B target_3d:'); print_dict(target_3d)
+
+            if self.input_dilator is not None:
+                target_2d = self.input_dilator(target_2d)
+                target_3d = self.input_dilator(target_3d)
+
             # <======= Feedforward generator and discriminator
             if target_2d and target_3d:
                 inp = torch.cat((target_2d['features'], target_3d['features']), dim=0).to(self.device)
@@ -177,6 +192,10 @@ class Trainer():
             else:
                 inp = target_2d['features'].to(self.device)
 
+            # print('A target_2d:'); print_dict(target_2d)
+            # print('A target_3d:'); print_dict(target_3d)
+            # print('A inp: {}'.format(inp.shape))
+
             timer['data'] = time.time() - start
             start = time.time()
 
@@ -184,9 +203,6 @@ class Trainer():
 
             timer['forward'] = time.time() - start
             start = time.time()
-
-            def print_dict(d):
-                for k, v in d.items(): print('{}: {}'.format(k, v.shape))
 
             # print('B target_2d:'); print_dict(target_2d)
             # print('B target_3d:'); print_dict(target_3d)
@@ -287,6 +303,10 @@ class Trainer():
 
             # <=============
             with torch.no_grad():
+                # print('B target:'); print_dict(target)
+                if self.input_dilator is not None:
+                    target = self.input_dilator(target)
+                # print('A target:'); print_dict(target)
                 inp = target['features']
 
                 preds = self.generator(inp, J_regressor=J_regressor)

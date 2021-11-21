@@ -33,6 +33,9 @@ class Dilator(nn.Module):
             sample_timeline = np.append(sample_timeline, timeline[-1])
         out = {}
         for k, v in inp.items():
-            assert v.shape[self.temporal_axis] == seqlen
-            out[k] = v[:, sample_timeline, ...]  # temporal_axis=1
+            if hasattr(v, 'shape'):
+                assert v.shape[self.temporal_axis] == seqlen
+                out[k] = v[:, sample_timeline, ...]  # temporal_axis=1
+            else:
+                print('WARNING: [{}] has no attribute shape, dilation was not operated.'.format(k))
         return out
