@@ -268,7 +268,7 @@ class Regressor(nn.Module):
         # print(sample.shape)
         # print(len(sample.shape)-1)
 
-        # interpoloate
+        # interpolote
         interp_fn = interp1d(sample_timeline, sample, axis=temporal_axis, kind=interp_type)
         interped = interp_fn(timeline)
 
@@ -325,8 +325,6 @@ class Regressor(nn.Module):
             _cam = pred_cam.reshape(orig_bs, seqlen, 3)
 
             # interp
-            # interp_type = 'cubic'  # FIXME - hardcoded interp_type, interp_ratio
-            # interp_ratio = 32
             _pose = self.interp_batch(_pose, self.interp_type, self.interp_ratio)
             _shape = self.interp_batch(_shape, self.interp_type, self.interp_ratio)
             _cam = self.interp_batch(_cam, self.interp_type, self.interp_ratio)
