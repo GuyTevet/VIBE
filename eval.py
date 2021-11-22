@@ -26,6 +26,9 @@ def main(cfg):
     if cfg.TRAIN.PRETRAINED != '' and os.path.isfile(cfg.TRAIN.PRETRAINED):
         checkpoint = torch.load(cfg.TRAIN.PRETRAINED)
         best_performance = checkpoint['performance']
+        ckpt_to_del = [k for k in checkpoint['gen_state_dict'].keys() if 'regressor.smpl.' in k]
+        for k in ckpt_to_del:  # But why?! smpl model was once inside the regressor, but moved to geometric_process. This is to support older models (without changing funcionality)
+            del checkpoint['gen_state_dict'][k]
         model.load_state_dict(checkpoint['gen_state_dict'])
         print(f'==> Loaded pretrained model from {cfg.TRAIN.PRETRAINED}...')
         print(f'Performance on 3DPW test set {best_performance}')

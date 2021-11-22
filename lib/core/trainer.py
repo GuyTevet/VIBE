@@ -24,6 +24,7 @@ from progress.bar import Bar
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
+from lib.models.utils import GeometricProcess
 
 from lib.utils.eval_utils import (
     compute_accel,
@@ -101,6 +102,7 @@ class Trainer():
         self.logdir = logdir
         self.input_dilator = input_dilator
         self.output_dilator = output_dilator
+        self.geometric_process = GeometricProcess().to(self.device)
 
         self.dis_motion_update_steps = dis_motion_update_steps
 
@@ -199,7 +201,10 @@ class Trainer():
             timer['data'] = time.time() - start
             start = time.time()
 
-            preds = self.generator(inp)
+            gen_output = self.generator(inp)
+            preds = []
+            for g in gen_output:
+                preds.append(self.geometric_process(g))
 
             timer['forward'] = time.time() - start
             start = time.time()

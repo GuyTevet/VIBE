@@ -5,7 +5,55 @@ import os.path as osp
 import torch.nn as nn
 import numpy as np
 from scipy.interpolate import interp1d
+from lib.core.config import VIBE_DATA_DIR
+from lib.utils.geometry import rotation_matrix_to_angle_axis, rot6d_to_rotmat
+from lib.models.smpl import SMPL, SMPL_MODEL_DIR, H36M_TO_J14, SMPL_MEAN_PARAMS
 
+def projection(pred_joints, pred_camera):
+    pred_cam_t = torch.stack([pred_camera[:, 1],
+                              pred_camera[:, 2],
+                              2 * 5000. / (224. * pred_camera[:, 0] + 1e-9)], dim=-1)
+    batch_size = pred_joints.shape[0]
+    camera_center = torch.zeros(batch_size, 2)
+    pred_keypoints_2d = perspective_projection(pred_joints,
+                                               rotation=torch.eye(3).unsqueeze(0).expand(batch_size, -1, -1).to(pred_joints.device),
+                                               translation=pred_cam_t,
+                                               focal_length=5000.,
+                                               camera_center=camera_center)
+    # Normalize keypoints to [-1,1]
+    pred_keypoints_2d = pred_keypoints_2d / (224. / 2.)
+    return pred_keypoints_2d
+
+
+def perspective_projection(points, rotation, translation,
+                           focal_length, camera_center):
+    """
+    This function computes the perspective projection of a set of points.
+    Input:
+        points (bs, N, 3): 3D points
+        rotation (bs, 3, 3): Camera rotation
+        translation (bs, 3): Camera translation
+        focal_length (bs,) or scalar: Focal length
+        camera_center (bs, 2): Camera center
+    """
+    batch_size = points.shape[0]
+    K = torch.zeros([batch_size, 3, 3], device=points.device)
+    K[:,0,0] = focal_length
+    K[:,1,1] = focal_length
+    K[:,2,2] = 1.
+    K[:,:-1, -1] = camera_center
+
+    # Transform points
+    points = torch.einsum('bij,bkj->bki', rotation, points)
+    points = points + translation.unsqueeze(1)
+
+    # Apply perspective distortion
+    projected_points = points / points[:,:,-1].unsqueeze(-1)
+
+    # Apply camera intrinsics
+    projected_points = torch.einsum('bij,bkj->bki', K, projected_points)
+
+    return projected_points[:, :, :-1]
 
 class Dilator(nn.Module):
     def __init__(
@@ -75,3 +123,64 @@ class Interpolator(nn.Module):
             else:
                 assert interped.shape[i] == inp.shape[i]
         return torch.tensor(interped, device=inp.device, dtype=torch.float32)
+
+class GeometricProcess(nn.Module):
+    def __init__(
+            self
+    ):
+        super(GeometricProcess, self).__init__()
+
+        self.smpl = SMPL(
+            SMPL_MODEL_DIR,
+            batch_size=64,
+            create_transl=False
+        )
+
+    def forward(self, pred, J_regressor=None):
+
+        bs, seqlen, _ = pred['cam'].shape
+        flat_bs = bs * seqlen
+
+        # flatten
+        pred['pose'] = pred['pose'].reshape(flat_bs, -1, 6)
+        pred['shape'] = pred['shape'].reshape(flat_bs, 10)
+        pred['cam'] = pred['cam'].reshape(flat_bs, 3)
+
+        pred_rotmat = rot6d_to_rotmat(pred['pose']).view(flat_bs, 24, 3, 3)
+        # print(pred_rotmat.device)
+        # for k, v in pred.items():
+        #     print('{}: {}, {}'.format(k, v.shape, v.device))
+        pred_output = self.smpl(
+            betas=pred['shape'],
+            body_pose=pred_rotmat[:, 1:],
+            global_orient=pred_rotmat[:, 0].unsqueeze(1),
+            pose2rot=False
+        )
+
+        pred_vertices = pred_output.vertices
+        pred_joints = pred_output.joints
+
+        if J_regressor is not None:
+            J_regressor_batch = J_regressor[None, :].expand(pred_vertices.shape[0], -1, -1).to(pred_vertices.device)
+            pred_joints = torch.matmul(J_regressor_batch, pred_vertices)
+            pred_joints = pred_joints[:, H36M_TO_J14, :]
+
+        pred_keypoints_2d = projection(pred_joints, pred['cam'])
+
+        pose = rotation_matrix_to_angle_axis(pred_rotmat.reshape(-1, 3, 3)).reshape(-1, 72)
+
+        smpl_output = {
+            'theta'  : torch.cat([pred['cam'], pose, pred['shape']], dim=1),
+            'verts'  : pred_vertices,
+            'kp_2d'  : pred_keypoints_2d,
+            'kp_3d'  : pred_joints,
+            'rotmat' : pred_rotmat
+        }
+
+        smpl_output['theta'] = smpl_output['theta'].reshape(bs, seqlen, -1)
+        smpl_output['verts'] = smpl_output['verts'].reshape(bs, seqlen, -1, 3)
+        smpl_output['kp_2d'] = smpl_output['kp_2d'].reshape(bs, seqlen, -1, 2)
+        smpl_output['kp_3d'] = smpl_output['kp_3d'].reshape(bs, seqlen, -1, 3)
+        smpl_output['rotmat'] = smpl_output['rotmat'].reshape(bs, seqlen, -1, 3, 3)
+
+        return smpl_output

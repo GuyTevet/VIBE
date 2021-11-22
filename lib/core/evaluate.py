@@ -26,6 +26,7 @@ from progress.bar import Bar
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
+from lib.models.utils import GeometricProcess
 
 from lib.utils.eval_utils import (
     compute_accel,
@@ -49,6 +50,7 @@ class Evaluator():
         self.test_loader = test_loader
         self.model = model
         self.device = device
+        self.geometric_process = GeometricProcess().to(self.device)
 
         self.out_json = out_json
         self.interp_type = interp_type
@@ -84,7 +86,11 @@ class Evaluator():
             with torch.no_grad():
                 inp = target['features']
 
-                preds = self.model(inp, J_regressor=J_regressor)
+                # preds = self.model(inp, J_regressor=J_regressor)
+                gen_output = self.model(inp)
+                preds = []
+                for g in gen_output:
+                    preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
                 # convert to 14 keypoint format for evaluation
                 # if self.use_spin:
