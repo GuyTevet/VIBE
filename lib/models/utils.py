@@ -88,7 +88,7 @@ class Dilator(nn.Module):
                 out[k] = v[:, sample_timeline, ...]  # temporal_axis=1
             else:
                 print('WARNING: [{}] has no attribute shape, dilation was not operated.'.format(k))
-        return out, timeline
+        return out, sample_timeline
 
 class Interpolator(nn.Module):
     def __init__(
@@ -101,6 +101,7 @@ class Interpolator(nn.Module):
         if temporal_axis != 1:
             raise ValueError('currently supporting only temporal_axis=1 (got {})'.format(temporal_axis))
         self.temporal_axis = temporal_axis
+        print('Interpolator - running [{}]'.format(self.interp_type))
 
     def forward(self, inp, inp_timeline):
         # TODO - implement with torch
@@ -113,16 +114,18 @@ class Interpolator(nn.Module):
             return inp
 
         # interpolote
-        interp_fn = interp1d(inp_timeline, inp.cpu().numpy(), axis=self.temporal_axis, kind=self.interp_type)
-        interped = interp_fn(out_timeline)
-        # print(interped.shape)
-
-        for i in range(len(inp.shape)):
-            if i == self.temporal_axis:
-                assert interped.shape[i] == out_seqlen
-            else:
-                assert interped.shape[i] == inp.shape[i]
-        return torch.tensor(interped, device=inp.device, dtype=torch.float32)
+        interped = {}
+        for k, v in inp.items():
+            interp_fn = interp1d(inp_timeline, v.cpu().numpy(), axis=self.temporal_axis, kind=self.interp_type)
+            interped[k] = interp_fn(out_timeline)
+            # print(interped.shape)
+            for i in range(len(v.shape)):
+                if i == self.temporal_axis:
+                    assert interped[k].shape[i] == out_seqlen
+                else:
+                    assert interped[k].shape[i] == v.shape[i]
+            interped[k] = torch.tensor(interped[k], device=v.device, dtype=torch.float32)
+        return interped
 
 class GeometricProcess(nn.Module):
     def __init__(
