@@ -53,13 +53,27 @@ class Evaluator():
         
         self.cfg = cfg
         self.out_json = out_json
-        self.interp_experiment = self.cfg.EVAL.INTERP_RATIO is not None
+        self.experiment_flags = {
+            'interp': self.cfg.EVAL.INTERP_RATIO is not None,
+            'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE > 1,
+            'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE > 1,
+        }
+        if sum(list(self.experiment_flags.values())) > 1:
+            raise ValueError('BAD CONFIGURATION: You can not run more than one experiment at a time.')
+
 
         self.dilator = None
         self.interpolator = None
-        if self.interp_experiment:
+        if self.experiment_flags['interp']:
             self.dilator = Dilator(dilation_rate=self.cfg.EVAL.INTERP_RATIO)
             self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
+        elif self.experiment_flags['input_dilation']:
+            self.dilator = Dilator(dilation_rate=self.cfg.MODEL.INPUT_DILATION_RATE)
+            self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
+        elif self.experiment_flags['output_dilation']:
+            self.dilator = Dilator(dilation_rate=self.cfg.MODEL.OUTPUT_DILATION_RATE)
+            self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
+
 
         self.evaluation_accumulators = dict.fromkeys(['pred_j3d', 'target_j3d', 'target_theta', 'pred_verts'])
 
@@ -88,15 +102,19 @@ class Evaluator():
 
             # <=============
             with torch.no_grad():
+                if self.experiment_flags['input_dilation']:
+                    target, timeline = self.dilator(target)
                 inp = target['features']
 
                 # preds = self.model(inp, J_regressor=J_regressor)
                 gen_output = self.model(inp)
                 preds = []
                 for g in gen_output:
-                    if self.interp_experiment:
+                    if self.experiment_flags['interp'] or self.experiment_flags['output_dilation']:
                         g_dilated, timeline = self.dilator(g)
                         g = self.interpolator(g_dilated, timeline)
+                    elif self.experiment_flags['input_dilation']:
+                        g = self.interpolator(g, timeline)
                     preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
                 # convert to 14 keypoint format for evaluation
