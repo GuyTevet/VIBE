@@ -207,17 +207,10 @@ class HMR(nn.Module):
 
 
 class Regressor(nn.Module):
-    def __init__(self, smpl_mean_params=SMPL_MEAN_PARAMS, interp_type='linear', interp_ratio=None):
+    def __init__(self, smpl_mean_params=SMPL_MEAN_PARAMS):
         super(Regressor, self).__init__()
 
         npose = 24 * 6
-
-        self.interp_type = interp_type
-        self.interp_ratio = interp_ratio
-        if interp_ratio is not None:
-            print('Regressor will execute interp [{}, {}]'.format(self.interp_type, self.interp_ratio))
-        else:
-            print('Regressor - No interp!')
 
         self.fc1 = nn.Linear(512 * 4 + npose + 13, 1024)
         self.drop1 = nn.Dropout()
