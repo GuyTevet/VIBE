@@ -26,7 +26,7 @@ from progress.bar import Bar
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
-from lib.models.utils import GeometricProcess
+from lib.models.utils import GeometricProcess, Dilator, Interpolator
 
 from lib.utils.eval_utils import (
     compute_accel,
@@ -40,22 +40,26 @@ logger = logging.getLogger(__name__)
 class Evaluator():
     def __init__(
             self,
+            cfg,
             test_loader,
             model,
             device=None,
             out_json=None,
-            interp_type='linear',
-            interp_ratio=None,
     ):
         self.test_loader = test_loader
         self.model = model
         self.device = device
         self.geometric_process = GeometricProcess().to(self.device)
-
+        
+        self.cfg = cfg
         self.out_json = out_json
-        self.interp_type = interp_type
-        self.interp_ratio = interp_ratio
-        self.interp_experiment = self.interp_ratio is not None
+        self.interp_experiment = self.cfg.EVAL.INTERP_RATIO is not None
+
+        self.dilator = None
+        self.interpolator = None
+        if self.interp_experiment:
+            self.dilator = Dilator(dilation_rate=self.cfg.EVAL.INTERP_RATIO)
+            self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
 
         self.evaluation_accumulators = dict.fromkeys(['pred_j3d', 'target_j3d', 'target_theta', 'pred_verts'])
 
@@ -90,6 +94,9 @@ class Evaluator():
                 gen_output = self.model(inp)
                 preds = []
                 for g in gen_output:
+                    if self.interp_experiment:
+                        g_dilated, timeline = self.dilator(g)
+                        g = self.interpolator(g_dilated, timeline)
                     preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
                 # convert to 14 keypoint format for evaluation
@@ -175,13 +182,13 @@ class Evaluator():
                 json_dict = json.load(fr)
 
         # append results
-        if self.interp_ratio is None:
+        if self.cfg.EVAL.INTERP_RATIO is None:
             json_dict['no_interp'] = eval_dict
         else:
-            if not self.interp_type in json_dict.keys():
-                json_dict[self.interp_type] = [(1, json_dict['no_interp'])] # assumes no_interp runs first
-            json_dict[self.interp_type].append((self.interp_ratio, eval_dict))
-            json_dict[self.interp_type].sort(key=lambda e: e[0])
+            if not self.cfg.EVAL.INTERP_TYPE in json_dict.keys():
+                json_dict[self.cfg.EVAL.INTERP_TYPE] = [(1, json_dict['no_interp'])] # assumes no_interp runs first
+            json_dict[self.cfg.EVAL.INTERP_TYPE].append((self.cfg.EVAL.INTERP_RATIO, eval_dict))
+            json_dict[self.cfg.EVAL.INTERP_TYPE].sort(key=lambda e: e[0])
 
         # save json
         with open(self.out_json, 'w') as fw:
