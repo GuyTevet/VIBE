@@ -23,6 +23,7 @@ import logging
 import numpy as np
 import os.path as osp
 from progress.bar import Bar
+from copy import deepcopy
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
@@ -44,7 +45,6 @@ class Evaluator():
             test_loader,
             model,
             device=None,
-            out_json=None,
     ):
         self.test_loader = test_loader
         self.model = model
@@ -52,7 +52,6 @@ class Evaluator():
         self.geometric_process = GeometricProcess().to(self.device)
         
         self.cfg = cfg
-        self.out_json = out_json
         self.experiment_flags = {
             'interp': self.cfg.EVAL.INTERP_RATIO is not None,
             'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE > 1,
@@ -61,6 +60,23 @@ class Evaluator():
         if sum(list(self.experiment_flags.values())) > 1:
             raise ValueError('BAD CONFIGURATION: You can not run more than one experiment at a time.')
 
+        self.active_exp = 'no_exp'
+        for k, v in self.experiment_flags.items():
+            if v:
+                self.active_exp = k
+                break
+
+        ratio_per_exp = {
+            'interp': self.cfg.EVAL.INTERP_RATIO,
+            'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE,
+            'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE,
+        }
+
+        self.active_exp_ratio = ratio_per_exp[self.active_exp]
+        self.eval_dir = './eval'
+        if not os.path.isdir(self.eval_dir):
+            os.makedirs(self.eval_dir)
+        self.out_json = os.path.join(self.eval_dir, 'eval_' + self.active_exp + '.json')
 
         self.dilator = None
         self.interpolator = None
@@ -103,6 +119,7 @@ class Evaluator():
             # <=============
             with torch.no_grad():
                 if self.experiment_flags['input_dilation']:
+                    orig_target = deepcopy(target)
                     target, timeline = self.dilator(target)
                 inp = target['features']
 
@@ -116,6 +133,9 @@ class Evaluator():
                     elif self.experiment_flags['input_dilation']:
                         g = self.interpolator(g, timeline)
                     preds.append(self.geometric_process(g, J_regressor=J_regressor))
+
+                if self.experiment_flags['input_dilation']:
+                    target = orig_target
 
                 # convert to 14 keypoint format for evaluation
                 # if self.use_spin:
@@ -200,17 +220,19 @@ class Evaluator():
                 json_dict = json.load(fr)
 
         # append results
-        if self.cfg.EVAL.INTERP_RATIO is None:
+        if sum(list(self.experiment_flags.values())) is None:
             json_dict['no_interp'] = eval_dict
         else:
-            if not self.cfg.EVAL.INTERP_TYPE in json_dict.keys():
-                json_dict[self.cfg.EVAL.INTERP_TYPE] = [(1, json_dict['no_interp'])] # assumes no_interp runs first
-            json_dict[self.cfg.EVAL.INTERP_TYPE].append((self.cfg.EVAL.INTERP_RATIO, eval_dict))
-            json_dict[self.cfg.EVAL.INTERP_TYPE].sort(key=lambda e: e[0])
+            exp_key = self.active_exp + '-' + self.cfg.EVAL.INTERP_TYPE
+            if not exp_key in json_dict.keys():
+                # json_dict[exp_key] = [(1, json_dict['no_interp'])] # assumes no_interp runs first
+                json_dict[exp_key] = []
+            json_dict[exp_key].append((self.active_exp_ratio, eval_dict))
+            json_dict[exp_key].sort(key=lambda e: e[0])
 
         # save json
         with open(self.out_json, 'w') as fw:
-            json.dump(json_dict, fw)
+            json.dump(json_dict, fw, indent=4)
 
 
 
