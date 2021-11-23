@@ -3,15 +3,16 @@ import json
 import os
 
 # collect data
-dir_path = 'results/seqlen_64'
 dataset = '3DPW'
 model = 'VIBE'
-results_path = os.path.join(dir_path, 'eval.json')
-interp_types = ['nearest', 'linear', 'cubic']
-with open(results_path, 'r') as f:
-    data_dict = json.load(f)
+dir_path = 'eval'
+results_list = ['results/seqlen_64/eval.json', 'eval/eval_input_dilation.json', 'eval/eval_output_dilation.json']
+data_dict = {}
+for res in results_list:
+    with open(res, 'r') as f:
+        data_dict.update(json.load(f))
 metrics = list(data_dict['no_interp'].keys())
-
+interp_types = [d for d in data_dict.keys() if d != 'no_interp']
 
 # visualize data
 vis_dir = os.path.join(dir_path, '{}_interp_vis'.format(model))
