@@ -145,16 +145,17 @@ class GeometricProcess(nn.Module):
         flat_bs = bs * seqlen
 
         # flatten
-        pred['pose'] = pred['pose'].reshape(flat_bs, -1, 6)
-        pred['shape'] = pred['shape'].reshape(flat_bs, 10)
-        pred['cam'] = pred['cam'].reshape(flat_bs, 3)
+        flat = {}
+        flat['pose'] = pred['pose'].view(flat_bs, -1, 6)
+        flat['shape'] = pred['shape'].view(flat_bs, 10)
+        flat['cam'] = pred['cam'].view(flat_bs, 3)
 
-        pred_rotmat = rot6d_to_rotmat(pred['pose']).view(flat_bs, 24, 3, 3)
+        pred_rotmat = rot6d_to_rotmat(flat['pose']).view(flat_bs, 24, 3, 3)
         # print(pred_rotmat.device)
         # for k, v in pred.items():
         #     print('{}: {}, {}'.format(k, v.shape, v.device))
         pred_output = self.smpl(
-            betas=pred['shape'],
+            betas=flat['shape'],
             body_pose=pred_rotmat[:, 1:],
             global_orient=pred_rotmat[:, 0].unsqueeze(1),
             pose2rot=False
@@ -168,12 +169,12 @@ class GeometricProcess(nn.Module):
             pred_joints = torch.matmul(J_regressor_batch, pred_vertices)
             pred_joints = pred_joints[:, H36M_TO_J14, :]
 
-        pred_keypoints_2d = projection(pred_joints, pred['cam'])
+        pred_keypoints_2d = projection(pred_joints, flat['cam'])
 
         pose = rotation_matrix_to_angle_axis(pred_rotmat.reshape(-1, 3, 3)).reshape(-1, 72)
 
         smpl_output = {
-            'theta'  : torch.cat([pred['cam'], pose, pred['shape']], dim=1),
+            'theta'  : torch.cat([flat['cam'], pose, flat['shape']], dim=1),
             'verts'  : pred_vertices,
             'kp_2d'  : pred_keypoints_2d,
             'kp_3d'  : pred_joints,
