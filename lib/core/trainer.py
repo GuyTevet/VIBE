@@ -288,6 +288,8 @@ class Trainer():
         logger.info(summary_string)
 
     def validate(self):
+        # Validation with 3DPW dataset (by default [cfg.TRAIN.DATASET_EVAL]) as in the evaluation script.
+        # Here - using valset, eval - using testset
         self.generator.eval()
 
         start = time.time()
@@ -310,15 +312,19 @@ class Trainer():
             with torch.no_grad():
                 # print('B target:'); print_dict(target)
                 if self.input_dilator is not None:
-                    target = self.input_dilator(target)
+                    target, _ = self.input_dilator(target)
                 # print('A target:'); print_dict(target)
                 inp = target['features']
 
-                preds = self.generator(inp, J_regressor=J_regressor)
+                # preds = self.generator(inp, J_regressor=J_regressor)
+                gen_output = self.generator(inp)
+                preds = []
+                for g in gen_output:
+                    preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
                 if self.output_dilator is not None:
-                    preds = [self.output_dilator(p) for p in preds]
-                    target = self.output_dilator(target)
+                    preds = [self.output_dilator(p)[0] for p in preds]
+                    target, _ = self.output_dilator(target)
 
                 # convert to 14 keypoint format for evaluation
                 n_kp = preds[-1]['kp_3d'].shape[-2]

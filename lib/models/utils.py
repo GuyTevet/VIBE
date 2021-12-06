@@ -90,6 +90,7 @@ class Dilator(nn.Module):
                 print('WARNING: [{}] has no attribute shape, dilation was not operated.'.format(k))
         return out, sample_timeline
 
+
 class Interpolator(nn.Module):
     def __init__(
             self,
@@ -146,9 +147,9 @@ class GeometricProcess(nn.Module):
 
         # flatten
         flat = {}
-        flat['pose'] = pred['pose'].view(flat_bs, -1, 6)
-        flat['shape'] = pred['shape'].view(flat_bs, 10)
-        flat['cam'] = pred['cam'].view(flat_bs, 3)
+        flat['pose'] = pred['pose'].reshape(flat_bs, -1, 6)
+        flat['shape'] = pred['shape'].reshape(flat_bs, 10)
+        flat['cam'] = pred['cam'].reshape(flat_bs, 3)
 
         pred_rotmat = rot6d_to_rotmat(flat['pose']).view(flat_bs, 24, 3, 3)
         # print(pred_rotmat.device)
@@ -188,3 +189,4 @@ class GeometricProcess(nn.Module):
         smpl_output['rotmat'] = smpl_output['rotmat'].reshape(bs, seqlen, -1, 3, 3)
 
         return smpl_output
+

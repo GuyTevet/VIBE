@@ -35,10 +35,12 @@ def main(cfg):
         print(f'{cfg.TRAIN.PRETRAINED} is not a pretrained model!!!!')
         exit()
 
-    test_db = ThreeDPW(set='test', seqlen=cfg.DATASET.SEQLEN, debug=cfg.DEBUG)
+    test_db = ThreeDPW(set='test', seqlen=cfg.DATASET.SEQLEN, debug=cfg.DEBUG) # Testset shouldnt be visible during dev process!
+    # val_db = ThreeDPW(set='val', seqlen=cfg.DATASET.SEQLEN, debug=cfg.DEBUG) # But the val_db is too small for stats
 
     test_loader = DataLoader(
         dataset=test_db,
+        # dataset=val_db,
         batch_size=cfg.TRAIN.BATCH_SIZE,
         shuffle=False,
         num_workers=cfg.NUM_WORKERS,
