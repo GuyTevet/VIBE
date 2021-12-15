@@ -105,6 +105,9 @@ cfg.MODEL.TGRU.BIDIRECTIONAL = False
 
 cfg.MODEL.OUTPUT_DILATION_RATE = 1  # 1 means no dilation
 cfg.MODEL.INPUT_DILATION_RATE = 1  # 1 means no dilation
+cfg.MODEL.DIFF_INTERP_RATE = 1  # 1 means no interpolation
+cfg.MODEL.DIFF_INTERP_TYPE = 'linear'
+cfg.MODEL.DIFF_INTERP_SAMPLE_TYPE = 'non-adaptive'
 
 cfg.EVAL = CN()
 cfg.EVAL.INTERP_TYPE = 'linear'

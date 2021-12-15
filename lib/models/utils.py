@@ -8,6 +8,7 @@ from scipy.interpolate import interp1d
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.geometry import rotation_matrix_to_angle_axis, rot6d_to_rotmat
 from lib.models.smpl import SMPL, SMPL_MODEL_DIR, H36M_TO_J14, SMPL_MEAN_PARAMS
+from lib.utils.interp1d import Interp1d
 
 def projection(pred_joints, pred_camera):
     pred_cam_t = torch.stack([pred_camera[:, 1],
@@ -77,10 +78,11 @@ class Dilator(nn.Module):
         if not self.is_dilated:
             return inp
         seqlen = list(inp.values())[0].shape[self.temporal_axis]
-        timeline = np.arange(seqlen)
+        timeline = torch.arange(seqlen).to(list(inp.values())[0].device)
         sample_timeline = timeline[0::self.dilation_rate]
         if sample_timeline[-1] != timeline[-1]:
-            sample_timeline = np.append(sample_timeline, timeline[-1])
+            # sample_timeline = np.append(sample_timeline, timeline[-1])
+            sample_timeline = torch.cat((sample_timeline, timeline[-1].view(1,)))
         out = {}
         for k, v in inp.items():
             if hasattr(v, 'shape'):
@@ -127,6 +129,95 @@ class Interpolator(nn.Module):
                     assert interped[k].shape[i] == v.shape[i]
             interped[k] = torch.tensor(interped[k], device=v.device, dtype=torch.float32)
         return interped
+
+
+class DiffInterpolator(nn.Module):
+    # differentiable interpolation, based on torchinterp1d
+    # for differentiability, we assume x_sample is sorted
+    def __init__(
+            self,
+            interp_type='linear',
+            sample_type='non_adaptive',
+            temporal_axis=1,
+    ):
+        super(DiffInterpolator, self).__init__()
+        if temporal_axis != 1:
+            raise ValueError('currently supporting only temporal_axis=1 (got {})'.format(temporal_axis))
+        if interp_type not in ['linear']:
+            raise ValueError('Unsupported interp_type [{}]'.format(interp_type))
+        if sample_type not in ['non-adaptive']:
+            raise ValueError('Unsupported interp_type [{}]'.format(sample_type))
+
+        self.interp_type = interp_type
+        self.sample_type = sample_type
+        self.temporal_axis = temporal_axis
+        self.interpolator = Interp1d()
+        print('Diff Interpolator - running [{}, {}]'.format(self.interp_type, self.sample_type))
+
+    def forward(self, inp, inp_timeline):
+
+        # inp_timeline -> x
+        # inp -> y
+        # out_timeline -> x_new
+        # interped -> y_new
+
+        orig_seqlen = list(inp.values())[0].shape[self.temporal_axis]
+        out_seqlen = inp_timeline[-1] + 1  # assuming timeline must include the last time step
+        assert len(inp_timeline) == orig_seqlen
+        out_timeline = torch.arange(out_seqlen).to(list(inp.values())[0].device)
+        if orig_seqlen == out_seqlen:
+            print('WARNING - Interpolator: interpolation was not operated.')
+            return inp
+
+        # interpolate
+        # print(inp.keys())
+        interped = {}
+        for k in inp.keys():
+            # y_pred = self.interp(x_hat, y_hat, x_new)
+            # print((inp_timeline.shape, type(inp_timeline)))
+            # print((inp[k].shape, type(inp[k])))
+            # print((out_timeline.shape, type(out_timeline)))
+            # print(k)
+            interped[k] = self.interp(inp_timeline, inp[k], out_timeline)
+            # print(interped[k].shape)
+            expected_shape = list(inp[k].shape)
+            expected_shape[self.temporal_axis] = out_seqlen
+            assert interped[k].shape == torch.Size(expected_shape)
+        return interped
+
+    def interp(self, x, y, xnew):
+        # A wrapper for interp1d call
+        # print(y.shape)
+        orig_shape = y.shape   # [bs, in_seqlen, f]
+        in_seqlen = orig_shape[self.temporal_axis]
+        out_seqlen = xnew.shape[0]
+
+        out_shape = list(orig_shape)
+        out_shape[self.temporal_axis] = out_seqlen  # [bs, out_seqlen, [f]]
+        out_shape = torch.Size(out_shape)
+
+        out_shape_before_swap = list(out_shape) # [bs, [f], out_seqlen]
+        out_shape_before_swap[self.temporal_axis] = out_shape[-1]
+        out_shape_before_swap[-1] = out_shape[self.temporal_axis]
+        out_shape_before_swap = torch.Size(out_shape_before_swap)
+
+        # print('out_shape_before_swap: {}'.format(out_shape_before_swap))
+        # print('out_shape: {}'.format(out_shape))
+        # print('out_seqlen: {}'.format(out_seqlen))
+        #
+        # print('GUYGUY1:y {}'.format(y.shape))
+        _y = torch.transpose(y, self.temporal_axis, -1)
+        _y = _y.reshape(-1, in_seqlen)
+        _x = torch.tile(x.view(1, -1), (_y.shape[0], 1))
+        _xnew = torch.tile(xnew.view(1, -1), (_y.shape[0], 1))
+        # print('GUYGUY2:_y {}'.format(_y.shape))
+        # print('GUYGUY2:_x {}'.format(_x.shape))
+        # print('GUYGUY2:_xnew {}'.format(_xnew.shape))
+        # ynew = self.interpolator(x, _y.view(-1, orig_seqlen), xnew)
+        ynew = self.interpolator(_x, _y, xnew).view(out_shape_before_swap)
+        # print('GUYGUY3: {}'.format(ynew.shape))
+        return torch.transpose(ynew, -1, self.temporal_axis)
+
 
 class GeometricProcess(nn.Module):
     def __init__(

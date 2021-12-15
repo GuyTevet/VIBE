@@ -24,10 +24,11 @@ import numpy as np
 import os.path as osp
 from progress.bar import Bar
 from copy import deepcopy
+import pickle
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
-from lib.models.utils import GeometricProcess, Dilator, Interpolator
+from lib.models.utils import GeometricProcess, Dilator, Interpolator, DiffInterpolator
 
 from lib.utils.eval_utils import (
     compute_accel,
@@ -56,6 +57,7 @@ class Evaluator():
             'interp': self.cfg.EVAL.INTERP_RATIO is not None,
             'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE > 1,
             'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE > 1,
+            'diff_interp': self.cfg.MODEL.DIFF_INTERP_RATE > 1,
         }
         if sum(list(self.experiment_flags.values())) > 1:
             raise ValueError('BAD CONFIGURATION: You can not run more than one experiment at a time.')
@@ -70,6 +72,8 @@ class Evaluator():
             'interp': self.cfg.EVAL.INTERP_RATIO,
             'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE,
             'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE,
+            'diff_interp': self.cfg.MODEL.DIFF_INTERP_RATE,
+            'no_exp': None
         }
 
         self.active_exp_ratio = ratio_per_exp[self.active_exp]
@@ -89,6 +93,10 @@ class Evaluator():
         elif self.experiment_flags['output_dilation']:
             self.dilator = Dilator(dilation_rate=self.cfg.MODEL.OUTPUT_DILATION_RATE)
             self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
+        elif self.experiment_flags['diff_interp']:
+            self.dilator = Dilator(dilation_rate=self.cfg.MODEL.DIFF_INTERP_RATE)
+            self.interpolator = DiffInterpolator(interp_type=self.cfg.MODEL.DIFF_INTERP_TYPE,
+                                                 sample_type=self.cfg.MODEL.DIFF_INTERP_SAMPLE_TYPE)
 
 
         self.evaluation_accumulators = dict.fromkeys(['pred_j3d', 'target_j3d', 'target_theta', 'pred_verts'])
@@ -119,15 +127,16 @@ class Evaluator():
             # <=============
             with torch.no_grad():
                 if self.experiment_flags['input_dilation']:
-                    orig_target = deepcopy(target)
+                    orig_target = deepcopy(target)  # FIXME - maybe BUG - it seems that deepcopy is not copying tensors
                     target, timeline = self.dilator(target)
                 inp = target['features']
 
                 # preds = self.model(inp, J_regressor=J_regressor)
                 gen_output = self.model(inp)
+                # orig_gen_output = deepcopy([{k: v.detach().clone().cpu() for k, v in gen_output[0].items()}])
                 preds = []
                 for g in gen_output:
-                    if self.experiment_flags['interp'] or self.experiment_flags['output_dilation']:
+                    if self.active_exp in ['interp', 'output_dilation', 'diff_interp']:
                         g_dilated, timeline = self.dilator(g)
                         g = self.interpolator(g_dilated, timeline)
                     elif self.experiment_flags['input_dilation']:
@@ -137,6 +146,7 @@ class Evaluator():
                 if self.experiment_flags['input_dilation']:
                     target = orig_target
 
+
                 # convert to 14 keypoint format for evaluation
                 # if self.use_spin:
                 n_kp = preds[-1]['kp_3d'].shape[-2]
@@ -145,13 +155,16 @@ class Evaluator():
                 pred_verts = preds[-1]['verts'].view(-1, 6890, 3).cpu().numpy()
                 target_theta = target['theta'].view(-1, 85).cpu().numpy()
 
-
                 self.evaluation_accumulators['pred_verts'].append(pred_verts)
                 self.evaluation_accumulators['target_theta'].append(target_theta)
 
                 self.evaluation_accumulators['pred_j3d'].append(pred_j3d)
                 self.evaluation_accumulators['target_j3d'].append(target_j3d)
             # =============>
+
+            # dump first batch to pkl for visualizations
+            if i == 0:
+                self.write_motion_sample(target_dict=target, pred_dict=preds[-1])
 
             batch_time = time.time() - start
 
@@ -212,6 +225,41 @@ class Evaluator():
         log_str = ' '.join([f'{k.upper()}: {v:.4f},'for k,v in eval_dict.items()])
         print(log_str)
 
+    def write_motion_sample(self, target_dict, pred_dict):
+
+        def seq_mpjpe(target_j3ds, pred_j3ds):
+            pred_pelvis = (pred_j3ds[:, [2], :] + pred_j3ds[:, [3], :]) / 2.0
+            target_pelvis = (target_j3ds[:, [2], :] + target_j3ds[:, [3], :]) / 2.0
+
+            pred_j3ds -= pred_pelvis
+            target_j3ds -= target_pelvis
+
+            # Absolute error (MPJPE)
+            return torch.mean(torch.sqrt(((pred_j3ds - target_j3ds) ** 2).sum(dim=-1)).mean(dim=-1)).cpu().numpy() * 1000
+
+
+        sample_dir = 'samples'
+        pred_file = self.cfg.TRAIN.PRETRAINED.split(os.sep)[-3] + '_samples.pkl'
+        pred_pkl = os.path.join(sample_dir, pred_file)
+        target_pkl = os.path.join(sample_dir, 'gt.pkl')
+        if not os.path.isdir(sample_dir):
+            os.makedirs(sample_dir)
+        if not os.path.isfile(target_pkl):
+            with open(target_pkl, 'wb') as handle:
+                target_thetas = [target_dict['theta'][i, :, 3:-10].cpu().numpy() for i in range(target_dict['theta'].shape[0])]  # remove 3 cam for start and 10 betas from end
+                target_betas = [target_dict['theta'][i, :, -10:].cpu().numpy() for i in range(target_dict['theta'].shape[0])]
+                target_kp_2d = [target_dict['kp_2d'][i].cpu().numpy() for i in range(target_dict['kp_2d'].shape[0])]
+                target_kp_3d = [target_dict['kp_3d'][i].cpu().numpy() for i in range(target_dict['kp_3d'].shape[0])]
+                pickle.dump({'thetas': target_thetas, 'betas': target_betas, 'kp_2d': target_kp_2d, 'kp_3d': target_kp_3d,}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(pred_pkl, 'wb') as handle:
+            pred_thetas = [pred_dict['theta'][i, :, 3:-10].cpu().numpy() for i in range(pred_dict['theta'].shape[0])]
+            pred_betas = [pred_dict['theta'][i, :, -10:].cpu().numpy() for i in range(pred_dict['theta'].shape[0])]
+            pred_kp_2d = [pred_dict['kp_2d'][i].cpu().numpy() for i in range(pred_dict['kp_2d'].shape[0])]
+            pred_kp_3d = [pred_dict['kp_3d'][i].cpu().numpy() for i in range(pred_dict['kp_3d'].shape[0])]
+            pred_mpjpe = [seq_mpjpe(target_dict['kp_3d'][i], pred_dict['kp_3d'][i]) for i in range(pred_dict['theta'].shape[0])]
+            pickle.dump({'thetas': pred_thetas, 'betas': pred_betas, 'mpjpe': pred_mpjpe, 'kp_2d': pred_kp_2d, 'kp_3d': pred_kp_3d,}, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
     def write_results(self, eval_dict):
         # for interp experiment
         json_dict = {}
@@ -220,7 +268,7 @@ class Evaluator():
                 json_dict = json.load(fr)
 
         # append results
-        if sum(list(self.experiment_flags.values())) is None:
+        if sum(list(self.experiment_flags.values())) == 0:
             json_dict['no_interp'] = eval_dict
         else:
             exp_key = self.active_exp + '-' + self.cfg.EVAL.INTERP_TYPE

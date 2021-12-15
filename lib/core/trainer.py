@@ -67,6 +67,7 @@ class Trainer():
             num_iters_per_epoch=1000,
             input_dilator=None,
             output_dilator=None,
+            output_interpolator=None,
     ):
 
         # Prepare dataloaders
@@ -102,6 +103,7 @@ class Trainer():
         self.logdir = logdir
         self.input_dilator = input_dilator
         self.output_dilator = output_dilator
+        self.output_interpolator = output_interpolator
         self.geometric_process = GeometricProcess().to(self.device)
 
         self.dis_motion_update_steps = dis_motion_update_steps
@@ -204,6 +206,10 @@ class Trainer():
             gen_output = self.generator(inp)
             preds = []
             for g in gen_output:
+                if self.output_dilator is not None:
+                    g, timeline = self.output_dilator(g)
+                    if self.output_interpolator is not None:
+                        g = self.output_interpolator(g, timeline)
                 preds.append(self.geometric_process(g))
 
             timer['forward'] = time.time() - start
@@ -213,10 +219,11 @@ class Trainer():
             # print('B target_3d:'); print_dict(target_3d)
             # print('B preds({}):'.format(len(preds))); print_dict(preds[0])
 
-            if self.output_dilator is not None:
+            if self.output_dilator is not None and self.output_interpolator is None:
+                # i.e. preds will not be up-sampled, so GT will now need to down-sampled to apply loss
                 target_2d, _ = self.output_dilator(target_2d)
                 target_3d, _ = self.output_dilator(target_3d)
-                preds = [self.output_dilator(p)[0] for p in preds]
+
 
             # print('A target_2d:'); print_dict(target_2d)
             # print('A target_3d:'); print_dict(target_3d)
@@ -320,10 +327,14 @@ class Trainer():
                 gen_output = self.generator(inp)
                 preds = []
                 for g in gen_output:
+                    if self.output_dilator is not None:
+                        g, timeline = self.output_dilator(g)
+                        if self.output_interpolator is not None:
+                            g = self.output_interpolator(g, timeline)
                     preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
-                if self.output_dilator is not None:
-                    preds = [self.output_dilator(p)[0] for p in preds]
+                if self.output_dilator is not None and self.output_interpolator is None:
+                    # i.e. preds will not be up-sampled, so GT will now need to down-sampled to apply loss
                     target, _ = self.output_dilator(target)
 
                 # convert to 14 keypoint format for evaluation

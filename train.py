@@ -27,7 +27,7 @@ from torch.utils.tensorboard import SummaryWriter
 from lib.core.loss import VIBELoss
 from lib.core.trainer import Trainer
 from lib.core.config import parse_args
-from lib.models.utils import Dilator
+from lib.models.utils import Dilator, DiffInterpolator
 from lib.utils.utils import prepare_output_dir
 from lib.models import VIBE, MotionDiscriminator
 from lib.dataset.loaders import get_data_loaders
@@ -133,15 +133,22 @@ def main(cfg):
         verbose=True,
     )
 
-    input_dilator=None
+    input_dilator = None
     if cfg.MODEL.INPUT_DILATION_RATE > 1:
         assert cfg.MODEL.OUTPUT_DILATION_RATE == 1
         input_dilator = Dilator(dilation_rate=cfg.MODEL.INPUT_DILATION_RATE)
 
-    output_dilator=None
+    output_dilator = None
     if cfg.MODEL.OUTPUT_DILATION_RATE > 1:
         assert cfg.MODEL.INPUT_DILATION_RATE == 1
         output_dilator = Dilator(dilation_rate=cfg.MODEL.OUTPUT_DILATION_RATE)
+
+    output_interpolator = None
+    if cfg.MODEL.DIFF_INTERP_RATE > 1:
+        assert cfg.MODEL.INPUT_DILATION_RATE == 1
+        assert cfg.MODEL.OUTPUT_DILATION_RATE == 1
+        output_dilator = Dilator(dilation_rate=cfg.MODEL.DIFF_INTERP_RATE)
+        output_interpolator = DiffInterpolator(interp_type=cfg.MODEL.DIFF_INTERP_TYPE, sample_type=cfg.MODEL.DIFF_INTERP_SAMPLE_TYPE)
 
     # ========= Start Training ========= #
     Trainer(
@@ -165,6 +172,7 @@ def main(cfg):
         debug_freq=cfg.DEBUG_FREQ,
         input_dilator=input_dilator,
         output_dilator=output_dilator,
+        output_interpolator=output_interpolator,
     ).fit()
 
 
