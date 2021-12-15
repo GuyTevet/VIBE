@@ -6,7 +6,7 @@ import os
 dataset = '3DPW'
 model = 'VIBE'
 dir_path = 'eval'
-results_list = ['results/seqlen_64/eval.json', 'eval/eval_input_dilation.json', 'eval/eval_output_dilation.json']
+results_list = ['results/seqlen_64/eval.json', 'eval/eval_input_dilation.json', 'eval/eval_output_dilation.json', 'eval/eval_diff_interp.json']
 data_dict = {}
 for res in results_list:
     with open(res, 'r') as f:
