@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 if __name__ == '__main__':
-    input_pkl = '../visuals/interp/interp_1d_exp_mlp_samplerate4.pkl'
+    # input_pkl = '../visuals/interp/interp_1d_exp_mlp_samplerate4.pkl'
+    input_pkl = '../visuals/interp/interp_1d_signal_noise_exp_mlp_samplerate4.pkl'
     out_mp4 = input_pkl.replace('.pkl', '.mp4')
     plot_dir = '/tmp/interp_1d_exp_plt'
     if os.path.isdir(plot_dir):
