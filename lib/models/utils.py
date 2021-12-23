@@ -111,7 +111,7 @@ class Interpolator(nn.Module):
         orig_seqlen = list(inp.values())[0].shape[self.temporal_axis]
         out_seqlen = inp_timeline[-1] + 1  # assuming timeline must include the last time step
         assert len(inp_timeline) == orig_seqlen
-        out_timeline = np.arange(out_seqlen)
+        out_timeline = np.arange(out_seqlen.cpu())
         if orig_seqlen == out_seqlen:
             print('WARNING - Interpolator: interpolation was not operated.')
             return inp
@@ -119,7 +119,7 @@ class Interpolator(nn.Module):
         # interpolote
         interped = {}
         for k, v in inp.items():
-            interp_fn = interp1d(inp_timeline, v.cpu().numpy(), axis=self.temporal_axis, kind=self.interp_type)
+            interp_fn = interp1d(inp_timeline.cpu().numpy(), v.cpu().numpy(), axis=self.temporal_axis, kind=self.interp_type)
             interped[k] = interp_fn(out_timeline)
             # print(interped.shape)
             for i in range(len(v.shape)):
@@ -281,3 +281,38 @@ class GeometricProcess(nn.Module):
 
         return smpl_output
 
+class Smoother(nn.Module):
+    def __init__(
+            self,
+            filter_size,
+            temporal_axis=1,
+    ):
+        super(Smoother, self).__init__()
+        self.filter_size = filter_size
+        if temporal_axis != 1:
+            raise ValueError('currently supporting only temporal_axis=1 (got {})'.format(temporal_axis))
+        self.temporal_axis = temporal_axis
+        self.filter = torch.ones([1, 1, 1, self.filter_size]) / self.filter_size # [out_ch, in_ch, filter_h, filter_w]
+
+    def forward(self, inp):
+        smoothed = {}
+        for k in inp.keys():
+            # reshape
+            orig_shape = inp[k].shape
+            smoothed[k] = inp[k]
+            if len(orig_shape) > 3:
+                smoothed[k] = smoothed[k].view(orig_shape[0], orig_shape[1], -1)
+
+            smoothed[k] = torch.swapaxes(smoothed[k], self.temporal_axis, -1)
+            smoothed[k] = smoothed[k].unsqueeze(1) # [bs, in_ch(1), n_features, seqlen]
+
+            # conv
+            smoothed[k] = torch.nn.functional.conv2d(smoothed[k], self.filter.to(smoothed[k].device), padding='same')
+
+            # rereshape
+            smoothed[k] = smoothed[k].squeeze()
+            smoothed[k] = torch.swapaxes(smoothed[k], self.temporal_axis, -1)
+            smoothed[k] = smoothed[k].view(orig_shape)
+            assert smoothed[k].shape == inp[k].shape
+
+        return smoothed

@@ -28,13 +28,14 @@ import pickle
 
 from lib.core.config import VIBE_DATA_DIR
 from lib.utils.utils import move_dict_to_device, AverageMeter
-from lib.models.utils import GeometricProcess, Dilator, Interpolator, DiffInterpolator
+from lib.models.utils import GeometricProcess, Dilator, Interpolator, DiffInterpolator, Smoother
 
 from lib.utils.eval_utils import (
     compute_accel,
     compute_error_accel,
     compute_error_verts,
     batch_compute_similarity_transform_torch,
+    compute_error_velocity,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class Evaluator():
         self.cfg = cfg
         self.experiment_flags = {
             'interp': self.cfg.EVAL.INTERP_RATIO is not None,
+            'smooth': self.cfg.EVAL.SMOOTH_RATE > 1,
             'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE > 1,
             'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE > 1,
             'diff_interp': self.cfg.MODEL.DIFF_INTERP_RATE > 1,
@@ -73,6 +75,7 @@ class Evaluator():
             'input_dilation': self.cfg.MODEL.INPUT_DILATION_RATE,
             'output_dilation': self.cfg.MODEL.OUTPUT_DILATION_RATE,
             'diff_interp': self.cfg.MODEL.DIFF_INTERP_RATE,
+            'smooth': self.cfg.EVAL.SMOOTH_RATE,
             'no_exp': None
         }
 
@@ -87,6 +90,8 @@ class Evaluator():
         if self.experiment_flags['interp']:
             self.dilator = Dilator(dilation_rate=self.cfg.EVAL.INTERP_RATIO)
             self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
+        elif self.experiment_flags['smooth']:
+            self.smoother = Smoother(filter_size=self.cfg.EVAL.SMOOTH_RATE)
         elif self.experiment_flags['input_dilation']:
             self.dilator = Dilator(dilation_rate=self.cfg.MODEL.INPUT_DILATION_RATE)
             self.interpolator = Interpolator(interp_type=self.cfg.EVAL.INTERP_TYPE)
@@ -141,6 +146,8 @@ class Evaluator():
                         g = self.interpolator(g_dilated, timeline)
                     elif self.experiment_flags['input_dilation']:
                         g = self.interpolator(g, timeline)
+                    elif self.experiment_flags['smooth']:
+                        g = self.smoother(g)
                     preds.append(self.geometric_process(g, J_regressor=J_regressor))
 
                 if self.experiment_flags['input_dilation']:
@@ -209,6 +216,7 @@ class Evaluator():
         pve = np.mean(compute_error_verts(target_theta=target_theta, pred_verts=pred_verts)) * m2mm
         accel = np.mean(compute_accel(pred_j3ds)) * m2mm
         accel_err = np.mean(compute_error_accel(joints_pred=pred_j3ds, joints_gt=target_j3ds)) * m2mm
+        velocity_err = np.mean(compute_error_velocity(joints_pred=pred_j3ds, joints_gt=target_j3ds)) * m2mm
         mpjpe = np.mean(errors) * m2mm
         pa_mpjpe = np.mean(errors_pa) * m2mm
 
@@ -217,7 +225,8 @@ class Evaluator():
             'pa-mpjpe': pa_mpjpe,
             'pve': pve,
             'accel': accel,
-            'accel_err': accel_err
+            'accel_err': accel_err,
+            'velocity_err': velocity_err,
         }
 
         self.write_results(eval_dict)
@@ -239,7 +248,12 @@ class Evaluator():
 
 
         sample_dir = 'samples'
-        pred_file = self.cfg.TRAIN.PRETRAINED.split(os.sep)[-3] + '_samples.pkl'
+        if self.experiment_flags['smooth']:
+            pred_file = 'baseline_' + self.active_exp + '_{}'.format(self.active_exp_ratio) + '_samples.pkl'
+        elif self.experiment_flags['interp']:
+            pred_file = 'baseline_' + self.active_exp + '_{}_{}'.format(self.cfg.EVAL.INTERP_TYPE, self.active_exp_ratio) + '_samples.pkl'
+        else:
+            pred_file = self.cfg.TRAIN.PRETRAINED.split(os.sep)[-3] + '_samples.pkl'
         pred_pkl = os.path.join(sample_dir, pred_file)
         target_pkl = os.path.join(sample_dir, 'gt.pkl')
         if not os.path.isdir(sample_dir):

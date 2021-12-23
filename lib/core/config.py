@@ -112,6 +112,7 @@ cfg.MODEL.DIFF_INTERP_SAMPLE_TYPE = 'non-adaptive'
 cfg.EVAL = CN()
 cfg.EVAL.INTERP_TYPE = 'linear'
 cfg.EVAL.INTERP_RATIO = None
+cfg.EVAL.SMOOTH_RATE = 1  # 1 means no smoothing
 
 def get_cfg_defaults():
     """Get a yacs CfgNode object with default values for my_project."""

@@ -18,6 +18,20 @@ def compute_accel(joints):
     acceleration_normed = np.linalg.norm(acceleration, axis=2)
     return np.mean(acceleration_normed, axis=1)
 
+def compute_error_velocity(joints_gt, joints_pred):
+    """
+    Computes acceleration of 3D joints.
+    Args:
+        joints_gt (Nx14x3).
+        joints_pred (Nx14x3).
+    Returns:
+        error_accel (N-1).
+    """
+    velocities_gt = joints_gt[1:] - joints_gt[:-1]
+    velocities_pred = joints_pred[1:] - joints_pred[:-1]
+    normed = np.linalg.norm(velocities_pred - velocities_gt, axis=2)
+    return np.mean(normed, axis=1)
+
 
 def compute_error_accel(joints_gt, joints_pred, vis=None):
     """
