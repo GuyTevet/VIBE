@@ -10,6 +10,9 @@ from tqdm import tqdm
 import os.path as osp
 import scipy.io as sio
 
+import sys
+sys.path.append(".")
+
 from lib.models import spin
 from lib.core.config import VIBE_DB_DIR
 from lib.utils.utils import tqdm_enumerate
